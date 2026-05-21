@@ -31,3 +31,21 @@ for entry in feed.entries:
 
 if results:
     send_email(results)
+
+import smtplib
+from email.mime.text import MIMEText
+
+def send_email(subject, body):
+    sender = "your_email@gmail.com"
+    receiver = "your_email@gmail.com"
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = receiver
+
+    server = smtplib.SMTP("smtp.gmail.com", 587)
+    server.starttls()
+    server.login(sender, os.environ["EMAIL_PASS"])
+    server.send_message(msg)
+    server.quit()
