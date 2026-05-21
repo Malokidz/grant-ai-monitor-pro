@@ -16,23 +16,36 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 # =========================
 # MOCK GRANTS (replace later with real scraper/API)
 # =========================
+import requests
+
 def fetch_new_grants():
-    return [
-        {
-            "title": "AI Research Grant 2026",
-            "organization": "Open Science Fund",
-            "deadline": "2026-09-01",
-            "link": "https://example.com/grant1",
-        },
-        {
-            "title": "Startup Innovation Grant",
-            "organization": "Tech Future Org",
-            "deadline": "2026-08-15",
-            "link": "https://example.com/grant2",
-        },
-    ]
+    print("🚀 USING API VERSION")
 
+    url = "https://api.grants.gov/v1/api/search2"
 
+    payload = {
+        "rows": 10,
+        "sortBy": "openDate|desc"
+    }
+
+    response = requests.post(url, json=payload)
+    data = response.json()
+
+    print("Found total:", data.get("data", {}).get("hitCount"))
+
+    grants = []
+
+    items = data.get("data", {}).get("oppHits", [])
+
+    for item in items:
+        grants.append({
+            "title": item.get("opportunityTitle", "No title"),
+            "organization": item.get("agencyName", "Unknown"),
+            "deadline": item.get("closeDate", "N/A"),
+            "link": f"https://www.grants.gov/search-results-detail/{item.get('opportunityNumber')}"
+        })
+
+    return grants
 # =========================
 # LOAD / SAVE SENT GRANTS
 # =========================
