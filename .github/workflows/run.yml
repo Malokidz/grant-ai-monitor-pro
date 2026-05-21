@@ -2,15 +2,15 @@ name: Grant AI Monitor
 
 on:
   schedule:
-    - cron: "0 14 * * *"  # Runs daily at 14:00 UTC
-  workflow_dispatch:      # Allows manual run
+    - cron: "0 14 * * *"
+  workflow_dispatch:
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -26,9 +26,6 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python main.py
+          python app/main.py
