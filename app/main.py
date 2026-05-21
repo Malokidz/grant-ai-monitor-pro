@@ -1,122 +1,106 @@
-import os
-import requests
-from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
 
-# ========================
-# CONFIG (YOUR PROFILE)
-# ========================
-KEYWORDS = [
-    "genomics",
-    "bioinformatics",
-    "microbes",
-    "parasite",
-    "infectious disease"
-]
+# =========================
+# CONFIG (EDIT THIS)
+# =========================
+import os
 
-GRANT_TYPES = ["K99", "R21"]
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 
-# ========================
-# SCRAPE GRANTS (example)
-# ========================
-def scrape_grants():
-    url = "https://www.grants.gov/search-results-detail/"
 
-    # Dummy example (replace later with real API)
-    grants = [
+# =========================
+# MOCK GRANTS (replace later with real scraper/API)
+# =========================
+def fetch_new_grants():
+    # Replace this with real scraping/API logic
+    return [
         {
-            "title": "NIH K99 Genomics Research",
-            "description": "Focus on infectious disease genomics",
-            "url": "https://example.com"
+            "title": "AI Research Grant 2026",
+            "organization": "Open Science Fund",
+            "deadline": "2026-09-01",
+            "link": "https://example.com/grant1",
         },
         {
-            "title": "R21 Microbiology Study",
-            "description": "Microbes and host interaction",
-            "url": "https://example.com"
-        }
+            "title": "Startup Innovation Grant",
+            "organization": "Tech Future Org",
+            "deadline": "2026-08-15",
+            "link": "https://example.com/grant2",
+        },
     ]
 
-    return grants
 
-# ========================
-# FILTER
-# ========================
-def filter_grants(grants):
-    filtered = []
-
-    for g in grants:
-        text = (g["title"] + " " + g["description"]).lower()
-
-        if any(k in text for k in KEYWORDS):
-            if any(gt in g["title"] for gt in GRANT_TYPES):
-                filtered.append(g)
-
-HEAD
-if results:
-    send_email(results)
-
-import smtplib
-from email.mime.text import MIMEText
-
-def send_email(subject, body):
-    sender = "your_email@gmail.com"
-    receiver = "your_email@gmail.com"
-
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-=======
-    return filtered
-
-# ========================
-# EMAIL
-# ========================
-def send_email(grants):
+# =========================
+# FORMAT EMAIL
+# =========================
+def format_email(grants):
     if not grants:
-        print("No relevant grants found")
-        return
+        return "No new grants found today."
 
-    sender = os.environ["EMAIL_USER"]
-    password = os.environ["EMAIL_PASS"]
-    receiver = sender
-
-    body = "🔥 Matching Grants:\n\n"
+    message = "🚀 New Grants Found:\n\n"
 
     for g in grants:
-        body += f"{g['title']}\n{g['url']}\n\n"
+        message += f"""
+Title: {g['title']}
+Organization: {g['organization']}
+Deadline: {g['deadline']}
+Link: {g['link']}
+-------------------------
+"""
 
-    msg = MIMEText(body)
-    msg["Subject"] = "Grant Alerts"
- 08bb289 (Fix main pipeline for GitHub Actions)
-    msg["From"] = sender
-    msg["To"] = receiver
+    return message
 
-    server = smtplib.SMTP("smtp.gmail.com", 587)
-    server.starttls()
- HEAD
-    server.login(sender, os.environ["EMAIL_PASS"])
-    server.send_message(msg)
-    server.quit()
-=======
-    server.login(sender, password)
-    server.send_message(msg)
-    server.quit()
 
-    print("Email sent!")
+# =========================
+# SEND EMAIL
+# =========================
+def send_email(subject, body):
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = EMAIL_SENDER
+        msg["To"] = EMAIL_RECEIVER
+        msg["Subject"] = subject
 
-# ========================
-# MAIN
-# ========================
+        msg.attach(MIMEText(body, "plain"))
+
+        # Gmail SMTP
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+
+        server.send_message(msg)
+        server.quit()
+
+        print("✅ Email sent successfully!")
+
+    except Exception as e:
+        print("❌ Failed to send email:", e)
+
+
+# =========================
+# MAIN PIPELINE
+# =========================
 def main():
-    print("Starting pipeline...")
+    print("🔍 Checking for new grants...")
 
-    grants = scrape_grants()
-    filtered = filter_grants(grants)
+    grants = fetch_new_grants()
 
-    print(f"Found {len(filtered)} matching grants")
+    print(f"Found {len(grants)} grants")
 
-    send_email(filtered)
+    email_body = format_email(grants)
 
+    send_email(
+        subject=f"Grant Monitor Update - {datetime.now().strftime('%Y-%m-%d')}",
+        body=email_body,
+    )
+
+
+# =========================
+# RUN
+# =========================
 if __name__ == "__main__":
     main()
- 08bb289 (Fix main pipeline for GitHub Actions)
