@@ -1,34 +1,58 @@
-import feedparser
-import json
-from ai_filter import evaluate_grant
-from database import already_seen, mark_seen
-from emailer import send_email
+import os
+import requests
+from bs4 import BeautifulSoup
+import smtplib
+from email.mime.text import MIMEText
 
-feed = feedparser.parse("https://www.grants.gov/rss/GG_NewOpp.xml")
+# ========================
+# CONFIG (YOUR PROFILE)
+# ========================
+KEYWORDS = [
+    "genomics",
+    "bioinformatics",
+    "microbes",
+    "parasite",
+    "infectious disease"
+]
 
-with open("keywords.json") as f:
-    keywords = json.load(f)["keywords"]
+GRANT_TYPES = ["K99", "R21"]
 
-results = []
+# ========================
+# SCRAPE GRANTS (example)
+# ========================
+def scrape_grants():
+    url = "https://www.grants.gov/search-results-detail/"
 
-for entry in feed.entries:
-    if already_seen(entry.link):
-        continue
+    # Dummy example (replace later with real API)
+    grants = [
+        {
+            "title": "NIH K99 Genomics Research",
+            "description": "Focus on infectious disease genomics",
+            "url": "https://example.com"
+        },
+        {
+            "title": "R21 Microbiology Study",
+            "description": "Microbes and host interaction",
+            "url": "https://example.com"
+        }
+    ]
 
-    text = (entry.title + " " + entry.summary).lower()
+    return grants
 
-    if any(k in text for k in keywords):
-        ai_result = evaluate_grant(text)
+# ========================
+# FILTER
+# ========================
+def filter_grants(grants):
+    filtered = []
 
-        if "YES" in ai_result:
-            results.append({
-                "title": entry.title,
-                "link": entry.link,
-                "analysis": ai_result
-            })
+    for g in grants:
+        text = (g["title"] + " " + g["description"]).lower()
 
-        mark_seen(entry.link)
+        if any(k in text for k in KEYWORDS):
+            if any(gt in g["title"] for gt in GRANT_TYPES):
+                filtered.append(g)
 
+HEAD
 if results:
     send_email(results)
 
@@ -41,11 +65,58 @@ def send_email(subject, body):
 
     msg = MIMEText(body)
     msg["Subject"] = subject
+=======
+    return filtered
+
+# ========================
+# EMAIL
+# ========================
+def send_email(grants):
+    if not grants:
+        print("No relevant grants found")
+        return
+
+    sender = os.environ["EMAIL_USER"]
+    password = os.environ["EMAIL_PASS"]
+    receiver = sender
+
+    body = "🔥 Matching Grants:\n\n"
+
+    for g in grants:
+        body += f"{g['title']}\n{g['url']}\n\n"
+
+    msg = MIMEText(body)
+    msg["Subject"] = "Grant Alerts"
+ 08bb289 (Fix main pipeline for GitHub Actions)
     msg["From"] = sender
     msg["To"] = receiver
 
     server = smtplib.SMTP("smtp.gmail.com", 587)
     server.starttls()
+ HEAD
     server.login(sender, os.environ["EMAIL_PASS"])
     server.send_message(msg)
     server.quit()
+=======
+    server.login(sender, password)
+    server.send_message(msg)
+    server.quit()
+
+    print("Email sent!")
+
+# ========================
+# MAIN
+# ========================
+def main():
+    print("Starting pipeline...")
+
+    grants = scrape_grants()
+    filtered = filter_grants(grants)
+
+    print(f"Found {len(filtered)} matching grants")
+
+    send_email(filtered)
+
+if __name__ == "__main__":
+    main()
+ 08bb289 (Fix main pipeline for GitHub Actions)
