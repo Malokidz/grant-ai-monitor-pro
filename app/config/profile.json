@@ -1,0 +1,14 @@
+{
+  "career_stage": "postdoc",
+  "institution": "University of New Mexico",
+  "fields": [
+    "genomics",
+    "bioinformatics",
+    "microbes",
+    "parasite",
+    "infectious disease"
+  ],
+  "target_grants": ["K99", "R21", "F32"],
+  "avoid_mechanisms": ["R01", "UM1", "U24"],
+  "preferred_agencies": ["NIH", "NHGRI", "NIAID"]
+}
