@@ -4,3 +4,4 @@ beautifulsoup4
 openai
 python-telegram-bot
 lxml
+requests
