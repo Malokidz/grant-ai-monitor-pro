@@ -1,13 +1,13 @@
+import json
+import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 
 # =========================
-# CONFIG (EDIT THIS)
+# CONFIG (FROM GITHUB SECRETS)
 # =========================
-import os
-
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
@@ -17,7 +17,6 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 # MOCK GRANTS (replace later with real scraper/API)
 # =========================
 def fetch_new_grants():
-    # Replace this with real scraping/API logic
     return [
         {
             "title": "AI Research Grant 2026",
@@ -32,6 +31,26 @@ def fetch_new_grants():
             "link": "https://example.com/grant2",
         },
     ]
+
+
+# =========================
+# LOAD / SAVE SENT GRANTS
+# =========================
+def load_sent_grants():
+    if not os.path.exists("sent_grants.json"):
+        return []
+    with open("sent_grants.json", "r") as f:
+        return json.load(f)
+
+
+def save_sent_grants(grants):
+    with open("sent_grants.json", "w") as f:
+        json.dump(grants, f, indent=2)
+
+
+def filter_new_grants(all_grants, sent_grants):
+    sent_titles = {g["title"] for g in sent_grants}
+    return [g for g in all_grants if g["title"] not in sent_titles]
 
 
 # =========================
@@ -87,20 +106,31 @@ def send_email(subject, body):
 def main():
     print("🔍 Checking for new grants...")
 
-    grants = fetch_new_grants()
+    all_grants = fetch_new_grants()
+    sent_grants = load_sent_grants()
 
-    print(f"Found {len(grants)} grants")
+    new_grants = filter_new_grants(all_grants, sent_grants)
 
-    email_body = format_email(grants)
+    print(f"Found {len(new_grants)} NEW grants")
+
+    if not new_grants:
+        print("No new grants. Skipping email.")
+        return
+
+    email_body = format_email(new_grants)
 
     send_email(
-        subject=f"Grant Monitor Update - {datetime.now().strftime('%Y-%m-%d')}",
+        subject=f"New Grants - {datetime.now().strftime('%Y-%m-%d')}",
         body=email_body,
     )
 
+    # Save updated list
+    updated = sent_grants + new_grants
+    save_sent_grants(updated)
+
 
 # =========================
-# RUN
+# RUN SCRIPT
 # =========================
 if __name__ == "__main__":
     main()
