@@ -1,35 +1,32 @@
 from openai import OpenAI
 import json
+import os
 
-client = OpenAI()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def evaluate(grant_text):
-    with open("app/config/profile.json") as f:
-        profile = json.load(f)
-
+def evaluate_grant(grant_text, profile):
     prompt = f"""
-    You are an NIH grant expert.
+You are an NIH grant expert.
 
-    Grant:
-    {grant_text}
+Grant:
+{grant_text}
 
-    Researcher:
-    {profile}
+Researcher profile:
+{json.dumps(profile, indent=2)}
 
-    Evaluate in JSON:
-    {{
-      "relevant": true/false,
-      "mechanism": "",
-      "eligible_as_PI": true/false,
-      "recommended_role": "",
-      "score": 1-10,
-      "reason": ""
-    }}
-    """
-
+Answer **only** with a valid JSON object following this exact schema:
+{{
+  "relevant": true/false,
+  "mechanism": "string (e.g., K99, R21, etc.)",
+  "eligible_as_PI": true/false,
+  "recommended_role": "PI / Co-I / Ignore",
+  "score": integer 0-10,
+  "reason": "short justification"
+}}
+"""
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2
     )
-
     return response.choices[0].message.content
