@@ -4,3 +4,6 @@ grants.db
 __pycache__/
 *.pyc
 grants.db
+__pycache__/
+*.pyc
+grants.db
