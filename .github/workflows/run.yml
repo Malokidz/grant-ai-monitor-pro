@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write   # 👈 IMPORTANT (allow push)
+      contents: write   # allow push
 
     steps:
       - name: Checkout repo
@@ -36,11 +36,18 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
-      # 👇 NEW STEP: commit updated file
       - name: Commit and push sent_grants.json
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           git add sent_grants.json
-          git commit -m "update sent grants" || echo "No changes"
-          git push
+          # Only proceed if there are changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "update sent grants"
+          # Pull latest changes (rebase to avoid merge conflicts)
+          git pull --rebase origin main
+          # Push
+          git push origin main
