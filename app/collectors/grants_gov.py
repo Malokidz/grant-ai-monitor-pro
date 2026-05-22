@@ -1,7 +1,6 @@
 # app/collectors/grants_gov.py
 import requests
 import json
-import os
 
 def fetch():
     # Load keywords from config
@@ -37,7 +36,6 @@ def fetch():
     
     grants = []
     for opp in opportunities:
-        # Extract basic info – the API already matched keywords, so we don't need description
         grant = {
             "id": opp.get("id"),
             "title": opp.get("title", ""),
@@ -45,7 +43,7 @@ def fetch():
             "source": "Grants.gov",
             "closeDate": opp.get("closeDate", "N/A"),
             "agencyName": opp.get("agencyName", ""),
-            "description": ""   # Not needed because API did keyword search
+            "description": ""   # Not needed; API already did keyword match
         }
         grants.append(grant)
     
