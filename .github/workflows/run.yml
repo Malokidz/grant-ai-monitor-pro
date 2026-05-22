@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write   # allow push
+      contents: write
 
     steps:
       - name: Checkout repo
@@ -41,13 +41,10 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           git add sent_grants.json
-          # Only proceed if there are changes
           if git diff --cached --quiet; then
             echo "No changes to commit"
-            exit 0
+          else
+            git commit -m "update sent grants"
           fi
-          git commit -m "update sent grants"
-          # Pull latest changes (rebase to avoid merge conflicts)
           git pull --rebase origin main
-          # Push
           git push origin main
