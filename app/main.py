@@ -7,7 +7,7 @@ from datetime import datetime
 import sqlite3
 
 from collectors import grants_gov, nih_reporter
-from ai.evaluator import evaluate_grant
+from ai.evaluator import evaluate_grant, has_available_quota
 from ai.scorer import score_text
 
 # =========================
@@ -16,7 +16,6 @@ from ai.scorer import score_text
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -114,9 +113,10 @@ def keyword_filter(grants):
     return filtered
 
 # =========================
-# AI EVALUATION + SCORING
+# AI EVALUATION + SCORING (with fallback)
 # =========================
 def evaluate_grant_with_ai(grant):
+    """Use OpenAI to evaluate a grant (assumes quota available)."""
     title = grant.get("title") or ""
     desc = grant.get("description") or ""
     deadline = grant.get("deadline") or "N/A"
@@ -144,6 +144,21 @@ def evaluate_grant_with_ai(grant):
         "reason": result.get("reason", "No AI reason provided")
     }
 
+def fallback_evaluate(grant):
+    """Rule‑based fallback when AI quota is exhausted."""
+    title = grant.get("title") or ""
+    desc = grant.get("description") or ""
+    text = title + " " + desc
+    rule_score = score_text(text)
+    return {
+        "relevant": True,   # already passed keyword filter
+        "mechanism": "unknown",
+        "eligible_pi": False,
+        "role": "Co-I",
+        "score": rule_score,
+        "reason": "AI unavailable – using keyword relevance only."
+    }
+
 # =========================
 # SEND EMAIL REPORT
 # =========================
@@ -162,10 +177,10 @@ Title: {g['title']}
 Source: {g['source']}
 Deadline: {g['deadline']}
 Link: {g['link']}
-AI Score: {ai['score']}/10
+Score: {ai['score']}/10
 Eligible as PI: {ai['eligible_pi']}
 Recommended role: {ai['role']}
-AI Reason: {ai['reason']}
+Reason: {ai['reason']}
 ----------------------------------------
 """
     msg = MIMEMultipart()
@@ -195,7 +210,7 @@ def send_telegram_summary(new_grants_with_ai):
 
     from notify.telegram import send as tg_send
     summary = f"🧬 New AI grants ({datetime.now().strftime('%Y-%m-%d')})\n\n"
-    for item in new_grants_with_ai[:5]:  # limit to 5
+    for item in new_grants_with_ai[:5]:
         g = item["grant"]
         ai = item["ai"]
         summary += f"• {g['title']} (score {ai['score']})\n{ai['reason'][:80]}...\n{g['link']}\n\n"
@@ -217,14 +232,28 @@ def main():
         print("No new grants. Exiting.")
         return
 
+    # Check OpenAI quota availability
+    ai_available = has_available_quota()
+    if not ai_available:
+        print("🚫 AI evaluation disabled due to missing credits. Using rule‑based scoring only.")
+
     evaluated = []
     for grant in new_grants:
-        print(f"🤖 Evaluating: {grant['title'][:60]}...")
-        ai_result = evaluate_grant_with_ai(grant)
+        if ai_available:
+            print(f"🤖 AI evaluating: {grant['title'][:60]}...")
+            ai_result = evaluate_grant_with_ai(grant)
+        else:
+            print(f"🔢 Rule‑based scoring: {grant['title'][:60]}...")
+            ai_result = fallback_evaluate(grant)
         evaluated.append({"grant": grant, "ai": ai_result})
         mark_seen(grant["link"], grant["title"], ai_result["score"], ai_result["reason"])
 
-    relevant_evaluated = [e for e in evaluated if e["ai"]["relevant"] is True]
+    # Filter only those considered relevant (AI decides; in fallback mode all are kept)
+    if ai_available:
+        relevant_evaluated = [e for e in evaluated if e["ai"]["relevant"] is True]
+    else:
+        relevant_evaluated = evaluated   # keep all because fallback marks relevant=True
+
     print(f"🎯 After AI relevance filter: {len(relevant_evaluated)} grants")
 
     send_email_report(relevant_evaluated)
