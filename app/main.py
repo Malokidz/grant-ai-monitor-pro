@@ -8,7 +8,7 @@ import sqlite3
 
 from collectors import grants_gov, nih_reporter
 from ai.evaluator import evaluate_grant, has_available_quota
-from ai.scorer import score_text
+from ai.scorer import score_text   # returns (score, matched_keywords)
 
 # =========================
 # CONFIG (from environment)
@@ -30,7 +30,7 @@ PROFILE = load_json("app/config/profile.json")
 KEYWORDS = load_json("app/config/keywords.json")["keywords"]
 
 # =========================
-# DATABASE (deduplication)
+# DATABASE (deduplication) - supports empty links
 # =========================
 DB_PATH = "grants.db"
 
@@ -39,7 +39,8 @@ def init_db():
     c = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS seen_grants (
-            link TEXT PRIMARY KEY,
+            key TEXT PRIMARY KEY,
+            link TEXT,
             title TEXT,
             first_seen TEXT,
             score INTEGER,
@@ -49,21 +50,28 @@ def init_db():
     conn.commit()
     conn.close()
 
-def already_seen(link):
+def grant_key(grant):
+    """Generate a unique key: use link if present, otherwise source:title."""
+    if grant.get("link"):
+        return grant["link"]
+    else:
+        return f"{grant['source']}:{grant['title']}"
+
+def already_seen(key):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT 1 FROM seen_grants WHERE link = ?", (link,))
+    c.execute("SELECT 1 FROM seen_grants WHERE key = ?", (key,))
     exists = c.fetchone() is not None
     conn.close()
     return exists
 
-def mark_seen(link, title, score, reason):
+def mark_seen(key, link, title, score, reason):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
-        INSERT OR REPLACE INTO seen_grants (link, title, first_seen, score, ai_reason)
-        VALUES (?, ?, ?, ?, ?)
-    """, (link, title, datetime.now().isoformat(), score, reason))
+        INSERT OR REPLACE INTO seen_grants (key, link, title, first_seen, score, ai_reason)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (key, link, title, datetime.now().isoformat(), score, reason))
     conn.commit()
     conn.close()
 
@@ -133,7 +141,7 @@ def evaluate_grant_with_ai(grant):
             "score": 0,
             "reason": ai_output[:200]
         }
-    rule_score = score_text(grant_text)
+    rule_score, _ = score_text(grant_text)   # we ignore matched keywords here
     final_score = result.get("score", rule_score)
     return {
         "relevant": result.get("relevant", False),
@@ -145,18 +153,20 @@ def evaluate_grant_with_ai(grant):
     }
 
 def fallback_evaluate(grant):
+    """Rule‑based fallback when AI quota is exhausted."""
     title = grant.get("title") or ""
     desc = grant.get("description") or ""
     text = title + " " + desc
     rule_score, matched_kws = score_text(text)
     return {
-        "relevant": True,
+        "relevant": True,   # already passed keyword filter
         "mechanism": "unknown",
         "eligible_pi": False,
         "role": "Co-I",
         "score": rule_score,
         "reason": f"AI unavailable. Matched keywords: {', '.join(matched_kws) if matched_kws else 'none'}"
     }
+
 # =========================
 # SEND EMAIL REPORT
 # =========================
@@ -164,7 +174,7 @@ def send_email_report(new_grants_with_ai):
     if not new_grants_with_ai:
         return
 
-    subject = f"🧬 AI Grant Alert – {datetime.now().strftime('%Y-%m-%d')}"
+    subject = f"🧬 Grant Alert – {datetime.now().strftime('%Y-%m-%d')}"
     body = "The following new grants match your profile and keywords:\n\n"
 
     for item in new_grants_with_ai:
@@ -174,7 +184,7 @@ def send_email_report(new_grants_with_ai):
 Title: {g['title']}
 Source: {g['source']}
 Deadline: {g['deadline']}
-Link: {g['link']}
+Link: {g['link'] if g['link'] else 'No direct link (search manually)'}
 Score: {ai['score']}/10
 Eligible as PI: {ai['eligible_pi']}
 Recommended role: {ai['role']}
@@ -207,7 +217,7 @@ def send_telegram_summary(new_grants_with_ai):
         return
 
     from notify.telegram import send as tg_send
-    summary = f"🧬 New AI grants ({datetime.now().strftime('%Y-%m-%d')})\n\n"
+    summary = f"🧬 New grants ({datetime.now().strftime('%Y-%m-%d')})\n\n"
     for item in new_grants_with_ai[:5]:
         g = item["grant"]
         ai = item["ai"]
@@ -219,11 +229,20 @@ def send_telegram_summary(new_grants_with_ai):
 # =========================
 def main():
     init_db()
-    print("🚀 Starting AI Grant Monitor...")
+    print("🚀 Starting Grant Monitor...")
 
     all_grants = fetch_all_grants()
     keyword_relevant = keyword_filter(all_grants)
-    new_grants = [g for g in keyword_relevant if not already_seen(g["link"])]
+
+    # Deduplicate using the robust grant_key (handles empty links)
+    new_grants = []
+    for g in keyword_relevant:
+        key = grant_key(g)
+        if not already_seen(key):
+            new_grants.append(g)
+            # Store the key temporarily for later marking
+            g["_dedup_key"] = key
+
     print(f"✨ New unseen grants: {len(new_grants)}")
 
     if not new_grants:
@@ -244,15 +263,22 @@ def main():
             print(f"🔢 Rule‑based scoring: {grant['title'][:60]}...")
             ai_result = fallback_evaluate(grant)
         evaluated.append({"grant": grant, "ai": ai_result})
-        mark_seen(grant["link"], grant["title"], ai_result["score"], ai_result["reason"])
+        # Use the stored dedup key to mark as seen
+        mark_seen(
+            key=grant["_dedup_key"],
+            link=grant.get("link", ""),
+            title=grant.get("title", ""),
+            score=ai_result["score"],
+            reason=ai_result["reason"]
+        )
 
     # Filter only those considered relevant (AI decides; in fallback mode all are kept)
     if ai_available:
         relevant_evaluated = [e for e in evaluated if e["ai"]["relevant"] is True]
     else:
-        relevant_evaluated = evaluated   # keep all because fallback marks relevant=True
+        relevant_evaluated = evaluated
 
-    print(f"🎯 After AI relevance filter: {len(relevant_evaluated)} grants")
+    print(f"🎯 After relevance filter: {len(relevant_evaluated)} grants")
 
     send_email_report(relevant_evaluated)
     send_telegram_summary(relevant_evaluated)
