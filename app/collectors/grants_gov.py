@@ -1,4 +1,3 @@
-# app/collectors/grants_gov.py
 import requests
 import json
 
@@ -8,7 +7,6 @@ def fetch():
         with open("app/config/keywords.json", "r") as f:
             keywords_data = json.load(f)
             keywords = keywords_data.get("keywords", [])
-            # Join keywords with OR for API search
             search_term = " OR ".join(keywords)
     except Exception as e:
         print(f"⚠️ Could not load keywords: {e}. Using fallback.")
@@ -16,10 +14,10 @@ def fetch():
     
     url = "https://api.grants.gov/v1/api/search2"
     payload = {
-        "rows": 20,                       # Number of results
-        "sortBy": "openDate|desc",        # Newest first
-        "oppStatuses": "posted",          # Only active opportunities
-        "keyword": search_term            # Search by your keywords
+        "rows": 20,
+        "sortBy": "openDate|desc",
+        "oppStatuses": "posted",
+        "keyword": search_term
     }
     
     print(f"🔍 Searching Grants.gov for: {search_term}")
@@ -39,11 +37,11 @@ def fetch():
         grant = {
             "id": opp.get("id"),
             "title": opp.get("title", ""),
-            "link": f"https://www.grants.gov/web/grants/view-opportunity.html?oppId={opp.get('id')}",
+            "link": f"https://simpler.grants.gov/opportunity/{opp.get('id')}",   # 👈 FIXED DOMAIN
             "source": "Grants.gov",
             "closeDate": opp.get("closeDate", "N/A"),
             "agencyName": opp.get("agencyName", ""),
-            "description": ""   # Not needed; API already did keyword match
+            "description": ""
         }
         grants.append(grant)
     
