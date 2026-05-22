@@ -1,14 +1,14 @@
+# app/main.py
 import json
 import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
-import sqlite3
-
-from collectors import grants_gov, nih_reporter
+from db.database import init_db, already_seen, mark_seen
+from collectors import grants_gov  # Only using Grants.gov now
 from ai.evaluator import evaluate_grant, has_available_quota
-from ai.scorer import score_text   # returns (score, matched_keywords)
+from ai.scorer import score_text
 
 # =========================
 # CONFIG (from environment)
@@ -30,84 +30,7 @@ PROFILE = load_json("app/config/profile.json")
 KEYWORDS = load_json("app/config/keywords.json")["keywords"]
 
 # =========================
-# DATABASE (deduplication) - supports empty links
-# =========================
-DB_PATH = "grants.db"
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS seen_grants (
-            key TEXT PRIMARY KEY,
-            link TEXT,
-            title TEXT,
-            first_seen TEXT,
-            score INTEGER,
-            ai_reason TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-def grant_key(grant):
-    """Generate a unique key: use link if present, otherwise source:title."""
-    if grant.get("link"):
-        return grant["link"]
-    else:
-        return f"{grant['source']}:{grant['title']}"
-
-def already_seen(key):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT 1 FROM seen_grants WHERE key = ?", (key,))
-    exists = c.fetchone() is not None
-    conn.close()
-    return exists
-
-def mark_seen(key, link, title, score, reason):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        INSERT OR REPLACE INTO seen_grants (key, link, title, first_seen, score, ai_reason)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (key, link, title, datetime.now().isoformat(), score, reason))
-    conn.commit()
-    conn.close()
-
-# =========================
-# FETCH GRANTS FROM ALL SOURCES
-# =========================
-def fetch_all_grants():
-    print("🔍 Fetching from Grants.gov...")
-    grants_gov_list = grants_gov.fetch()
-    print(f"  → {len(grants_gov_list)} opportunities")
-
-    print("🔍 Fetching from NIH Reporter...")
-    nih_list = nih_reporter.fetch()
-    print(f"  → {len(nih_list)} projects")
-
-    all_grants = []
-    for g in grants_gov_list:
-        all_grants.append({
-            "title": g.get("title", ""),
-            "description": g.get("summary", ""),
-            "link": g.get("link", ""),
-            "source": "Grants.gov",
-            "deadline": g.get("deadline", "N/A")
-        })
-    for n in nih_list:
-        all_grants.append({
-            "title": n.get("title", ""),
-            "description": n.get("summary", ""),
-            "link": n.get("link", ""),
-            "source": "NIH Reporter",
-            "deadline": n.get("deadline", "N/A")
-        })
-    return all_grants
-
-# =========================
-# KEYWORD PRE‑FILTER (cheap)
+# KEYWORD POST-FILTER (as a double-check)
 # =========================
 def keyword_filter(grants):
     filtered = []
@@ -127,8 +50,8 @@ def evaluate_grant_with_ai(grant):
     """Use OpenAI to evaluate a grant (assumes quota available)."""
     title = grant.get("title") or ""
     desc = grant.get("description") or ""
-    deadline = grant.get("deadline") or "N/A"
-    grant_text = f"Title: {title}\nDescription: {desc}\nDeadline: {deadline}"
+    close_date = grant.get("closeDate") or "N/A"
+    grant_text = f"Title: {title}\nDescription: {desc}\nDeadline: {close_date}"
     ai_output = evaluate_grant(grant_text, PROFILE)
     try:
         result = json.loads(ai_output)
@@ -141,7 +64,7 @@ def evaluate_grant_with_ai(grant):
             "score": 0,
             "reason": ai_output[:200]
         }
-    rule_score, _ = score_text(grant_text)   # we ignore matched keywords here
+    rule_score, _ = score_text(grant_text)
     final_score = result.get("score", rule_score)
     return {
         "relevant": result.get("relevant", False),
@@ -159,7 +82,7 @@ def fallback_evaluate(grant):
     text = title + " " + desc
     rule_score, matched_kws = score_text(text)
     return {
-        "relevant": True,   # already passed keyword filter
+        "relevant": True,
         "mechanism": "unknown",
         "eligible_pi": False,
         "role": "Co-I",
@@ -183,8 +106,8 @@ def send_email_report(new_grants_with_ai):
         body += f"""
 Title: {g['title']}
 Source: {g['source']}
-Deadline: {g['deadline']}
-Link: {g['link'] if g['link'] else 'No direct link (search manually)'}
+Deadline: {g['closeDate']}
+Link: {g['link']}
 Score: {ai['score']}/10
 Eligible as PI: {ai['eligible_pi']}
 Recommended role: {ai['role']}
@@ -231,17 +154,19 @@ def main():
     init_db()
     print("🚀 Starting Grant Monitor...")
 
-    all_grants = fetch_all_grants()
+    # 1. Fetch all grants from Grants.gov API
+    all_grants = grants_gov.fetch()
+
+    # 2. Double-check against your keywords
     keyword_relevant = keyword_filter(all_grants)
 
-    # Deduplicate using the robust grant_key (handles empty links)
+    # 3. Deduplicate using the new database (which uses opportunity_id)
     new_grants = []
     for g in keyword_relevant:
-        key = grant_key(g)
-        if not already_seen(key):
+        opp_id = g.get("id")
+        if opp_id and not already_seen(opp_id):
             new_grants.append(g)
-            # Store the key temporarily for later marking
-            g["_dedup_key"] = key
+            g["_dedup_key"] = opp_id  # Store the ID for later marking
 
     print(f"✨ New unseen grants: {len(new_grants)}")
 
@@ -263,14 +188,8 @@ def main():
             print(f"🔢 Rule‑based scoring: {grant['title'][:60]}...")
             ai_result = fallback_evaluate(grant)
         evaluated.append({"grant": grant, "ai": ai_result})
-        # Use the stored dedup key to mark as seen
-        mark_seen(
-            key=grant["_dedup_key"],
-            link=grant.get("link", ""),
-            title=grant.get("title", ""),
-            score=ai_result["score"],
-            reason=ai_result["reason"]
-        )
+        # Use the stored opportunity ID to mark as seen
+        mark_seen(grant["_dedup_key"], grant.get("title", ""), ai_result["score"], ai_result["reason"])
 
     # Filter only those considered relevant (AI decides; in fallback mode all are kept)
     if ai_available:
