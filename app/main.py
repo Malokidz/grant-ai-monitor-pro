@@ -156,7 +156,14 @@ def main():
 
     # 1. Fetch all grants from Grants.gov API
     all_grants = grants_gov.fetch()
-
+# Inside main(), after all_grants = grants_gov.fetch()
+    print("\n--- DEBUG: First 5 grants from API ---")
+    for i, grant in enumerate(all_grants[:5]):
+    	print(f"{i+1}. Title: {grant.get('title', 'NO TITLE')}")
+    	desc = grant.get('description', '')
+    	print(f"   Description preview: {desc[:150] if desc else 'EMPTY'}")
+    	print(f"   ID: {grant.get('id', 'NO ID')}")
+    print("--------------------------------------\n")
     # 2. Double-check against your keywords
     keyword_relevant = keyword_filter(all_grants)
 
