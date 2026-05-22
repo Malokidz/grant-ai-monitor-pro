@@ -39,7 +39,7 @@ def fetch():
         grant = {
             "id": opp.get("id"),
             "title": opp.get("title", ""),
-            "link": f"https://www.grants.gov/opportunity/{opp.get('id')}",
+            "link": f"https://www.grants.gov/web/grants/view-opportunity.html?oppId={opp.get('id')}",
             "source": "Grants.gov",
             "closeDate": opp.get("closeDate", "N/A"),
             "agencyName": opp.get("agencyName", ""),
