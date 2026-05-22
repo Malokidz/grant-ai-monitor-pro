@@ -6,7 +6,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from db.database import init_db, already_seen, mark_seen
-from collectors import grants_gov  # Only using Grants.gov now
+from collectors import grants_gov          # Uses search2 API with keywords
 from ai.evaluator import evaluate_grant, has_available_quota
 from ai.scorer import score_text
 
@@ -30,9 +30,12 @@ PROFILE = load_json("app/config/profile.json")
 KEYWORDS = load_json("app/config/keywords.json")["keywords"]
 
 # =========================
-# KEYWORD POST-FILTER (as a double-check)
+# KEYWORD POST-FILTER (optional double‑check)
 # =========================
 def keyword_filter(grants):
+    """
+    Local keyword check (redundant when using API keyword search, but kept as safety).
+    """
     filtered = []
     for g in grants:
         title = g.get("title") or ""
@@ -40,7 +43,7 @@ def keyword_filter(grants):
         text = (title + " " + desc).lower()
         if any(kw.lower() in text for kw in KEYWORDS):
             filtered.append(g)
-    print(f"🎯 After keyword filter: {len(filtered)} / {len(grants)} grants")
+    print(f"🎯 After local keyword filter: {len(filtered)} / {len(grants)} grants")
     return filtered
 
 # =========================
@@ -82,7 +85,7 @@ def fallback_evaluate(grant):
     text = title + " " + desc
     rule_score, matched_kws = score_text(text)
     return {
-        "relevant": True,
+        "relevant": True,      # API already matched keywords, so assume relevant
         "mechanism": "unknown",
         "eligible_pi": False,
         "role": "Co-I",
@@ -154,26 +157,31 @@ def main():
     init_db()
     print("🚀 Starting Grant Monitor...")
 
-    # 1. Fetch all grants from Grants.gov API
+    # 1. Fetch grants from Grants.gov API (already filtered by keywords)
     all_grants = grants_gov.fetch()
-# Inside main(), after all_grants = grants_gov.fetch()
-    print("\n--- DEBUG: First 5 grants from API ---")
-    for i, grant in enumerate(all_grants[:5]):
-    	print(f"{i+1}. Title: {grant.get('title', 'NO TITLE')}")
-    	desc = grant.get('description', '')
-    	print(f"   Description preview: {desc[:150] if desc else 'EMPTY'}")
-    	print(f"   ID: {grant.get('id', 'NO ID')}")
-    print("--------------------------------------\n")
-    # 2. Double-check against your keywords
+
+    # Optional debug: show first 5 results
+    if all_grants:
+        print("\n--- First 5 grants from API ---")
+        for i, grant in enumerate(all_grants[:5]):
+            print(f"{i+1}. Title: {grant.get('title', 'NO TITLE')}")
+            print(f"   Deadline: {grant.get('closeDate', 'N/A')}")
+            print(f"   Link: {grant.get('link', '')}")
+            print(f"   ID: {grant.get('id', 'NO ID')}")
+        print("--------------------------------\n")
+    else:
+        print("No grants returned by the API.\n")
+
+    # 2. Local keyword filter (redundant but safe)
     keyword_relevant = keyword_filter(all_grants)
 
-    # 3. Deduplicate using the new database (which uses opportunity_id)
+    # 3. Deduplicate using opportunity ID
     new_grants = []
     for g in keyword_relevant:
         opp_id = g.get("id")
         if opp_id and not already_seen(opp_id):
             new_grants.append(g)
-            g["_dedup_key"] = opp_id  # Store the ID for later marking
+            g["_dedup_key"] = opp_id
 
     print(f"✨ New unseen grants: {len(new_grants)}")
 
@@ -181,11 +189,12 @@ def main():
         print("No new grants. Exiting.")
         return
 
-    # Check OpenAI quota availability
+    # 4. Check OpenAI quota
     ai_available = has_available_quota()
     if not ai_available:
         print("🚫 AI evaluation disabled due to missing credits. Using rule‑based scoring only.")
 
+    # 5. Evaluate each new grant
     evaluated = []
     for grant in new_grants:
         if ai_available:
@@ -195,10 +204,9 @@ def main():
             print(f"🔢 Rule‑based scoring: {grant['title'][:60]}...")
             ai_result = fallback_evaluate(grant)
         evaluated.append({"grant": grant, "ai": ai_result})
-        # Use the stored opportunity ID to mark as seen
         mark_seen(grant["_dedup_key"], grant.get("title", ""), ai_result["score"], ai_result["reason"])
 
-    # Filter only those considered relevant (AI decides; in fallback mode all are kept)
+    # 6. Filter by AI relevance (if AI was used; otherwise keep all)
     if ai_available:
         relevant_evaluated = [e for e in evaluated if e["ai"]["relevant"] is True]
     else:
@@ -206,6 +214,7 @@ def main():
 
     print(f"🎯 After relevance filter: {len(relevant_evaluated)} grants")
 
+    # 7. Send notifications
     send_email_report(relevant_evaluated)
     send_telegram_summary(relevant_evaluated)
 
