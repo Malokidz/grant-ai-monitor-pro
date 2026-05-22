@@ -145,20 +145,18 @@ def evaluate_grant_with_ai(grant):
     }
 
 def fallback_evaluate(grant):
-    """Rule‑based fallback when AI quota is exhausted."""
     title = grant.get("title") or ""
     desc = grant.get("description") or ""
     text = title + " " + desc
-    rule_score = score_text(text)
+    rule_score, matched_kws = score_text(text)
     return {
-        "relevant": True,   # already passed keyword filter
+        "relevant": True,
         "mechanism": "unknown",
         "eligible_pi": False,
         "role": "Co-I",
         "score": rule_score,
-        "reason": "AI unavailable – using keyword relevance only."
+        "reason": f"AI unavailable. Matched keywords: {', '.join(matched_kws) if matched_kws else 'none'}"
     }
-
 # =========================
 # SEND EMAIL REPORT
 # =========================

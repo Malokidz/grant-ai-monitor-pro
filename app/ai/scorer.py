@@ -1,22 +1,18 @@
+import json
+
+def load_keywords():
+    with open("app/config/keywords.json") as f:
+        return [kw.lower() for kw in json.load(f)["keywords"]]
+
+KEYWORD_LIST = load_keywords()
+
 def score_text(text):
+    """Score a grant based on how many of your keywords appear."""
+    text_lower = text.lower()
     score = 0
-
-    keywords = {
-        "genomics": 3,
-        "bioinformatics": 3,
-        "microbe": 2,
-        "parasite": 3,
-        "infectious": 3,
-        "sequencing": 2,
-        "metagenomics": 4
-    }
-
-    for k, v in keywords.items():
-        if k in text.lower():
-            score += v
-
-    # Penalize big PI grants
-    if "R01" in text or "U24" in text or "UM1" in text:
-        score -= 5
-
-    return score
+    matched = []
+    for kw in KEYWORD_LIST:
+        if kw in text_lower:
+            score += 1
+            matched.append(kw)
+    return score, matched   # return both score and list of matched keywords
