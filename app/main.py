@@ -1,4 +1,3 @@
-# app/main.py
 import json
 import os
 import smtplib
@@ -99,6 +98,7 @@ def fetch_all_grants():
             "deadline": n.get("deadline", "N/A")
         })
     return all_grants
+
 # =========================
 # KEYWORD PRE‑FILTER (cheap)
 # =========================
@@ -112,6 +112,7 @@ def keyword_filter(grants):
             filtered.append(g)
     print(f"🎯 After keyword filter: {len(filtered)} / {len(grants)} grants")
     return filtered
+
 # =========================
 # AI EVALUATION + SCORING
 # =========================
@@ -120,13 +121,10 @@ def evaluate_grant_with_ai(grant):
     desc = grant.get("description") or ""
     deadline = grant.get("deadline") or "N/A"
     grant_text = f"Title: {title}\nDescription: {desc}\nDeadline: {deadline}"
-    # Call the OpenAI evaluator
     ai_output = evaluate_grant(grant_text, PROFILE)
     try:
-        # Expecting JSON string from evaluator
         result = json.loads(ai_output)
     except json.JSONDecodeError:
-        # Fallback if AI returns plain text
         result = {
             "relevant": False,
             "mechanism": "unknown",
@@ -135,9 +133,7 @@ def evaluate_grant_with_ai(grant):
             "score": 0,
             "reason": ai_output[:200]
         }
-    # Also run the rule‑based scorer
     rule_score = score_text(grant_text)
-    # Use AI score as primary, but you can combine
     final_score = result.get("score", rule_score)
     return {
         "relevant": result.get("relevant", False),
@@ -212,13 +208,8 @@ def main():
     init_db()
     print("🚀 Starting AI Grant Monitor...")
 
-    # 1. Fetch all grants
     all_grants = fetch_all_grants()
-
-    # 2. Pre‑filter by keywords
     keyword_relevant = keyword_filter(all_grants)
-
-    # 3. Deduplicate against database
     new_grants = [g for g in keyword_relevant if not already_seen(g["link"])]
     print(f"✨ New unseen grants: {len(new_grants)}")
 
@@ -226,23 +217,16 @@ def main():
         print("No new grants. Exiting.")
         return
 
-    # 4. Run AI evaluation on each new grant
     evaluated = []
     for grant in new_grants:
         print(f"🤖 Evaluating: {grant['title'][:60]}...")
         ai_result = evaluate_grant_with_ai(grant)
-        evaluated.append({
-            "grant": grant,
-            "ai": ai_result
-        })
-        # Mark as seen in DB immediately (to avoid re‑evaluation next run)
+        evaluated.append({"grant": grant, "ai": ai_result})
         mark_seen(grant["link"], grant["title"], ai_result["score"], ai_result["reason"])
 
-    # 5. Filter only relevant ones (optional: keep all but score low)
     relevant_evaluated = [e for e in evaluated if e["ai"]["relevant"] is True]
     print(f"🎯 After AI relevance filter: {len(relevant_evaluated)} grants")
 
-    # 6. Send notifications
     send_email_report(relevant_evaluated)
     send_telegram_summary(relevant_evaluated)
 
