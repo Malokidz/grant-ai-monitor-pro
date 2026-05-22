@@ -6,7 +6,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from db.database import init_db, already_seen, mark_seen
-from collectors import grants_gov          # Uses search2 API with keywords
+from collectors import grants_gov
 from ai.evaluator import evaluate_grant, has_available_quota
 from ai.scorer import score_text
 
@@ -28,23 +28,6 @@ def load_json(path):
 
 PROFILE = load_json("app/config/profile.json")
 KEYWORDS = load_json("app/config/keywords.json")["keywords"]
-
-# =========================
-# KEYWORD POST-FILTER (optional double‑check)
-# =========================
-def keyword_filter(grants):
-    """
-    Local keyword check (redundant when using API keyword search, but kept as safety).
-    """
-    filtered = []
-    for g in grants:
-        title = g.get("title") or ""
-        desc = g.get("description") or ""
-        text = (title + " " + desc).lower()
-        if any(kw.lower() in text for kw in KEYWORDS):
-            filtered.append(g)
-    print(f"🎯 After local keyword filter: {len(filtered)} / {len(grants)} grants")
-    return filtered
 
 # =========================
 # AI EVALUATION + SCORING (with fallback)
@@ -85,12 +68,12 @@ def fallback_evaluate(grant):
     text = title + " " + desc
     rule_score, matched_kws = score_text(text)
     return {
-        "relevant": True,      # API already matched keywords, so assume relevant
+        "relevant": True,      # API already matched keywords
         "mechanism": "unknown",
         "eligible_pi": False,
         "role": "Co-I",
         "score": rule_score,
-        "reason": f"AI unavailable. Matched keywords: {', '.join(matched_kws) if matched_kws else 'none'}"
+        "reason": f"AI unavailable. Matched keywords: {', '.join(matched_kws) if matched_kws else 'API match'}"
     }
 
 # =========================
@@ -157,10 +140,10 @@ def main():
     init_db()
     print("🚀 Starting Grant Monitor...")
 
-    # 1. Fetch grants from Grants.gov API (already filtered by keywords)
+    # 1. Fetch grants directly from API (already filtered by keywords)
     all_grants = grants_gov.fetch()
 
-    # Optional debug: show first 5 results
+    # Show first few for debugging
     if all_grants:
         print("\n--- First 5 grants from API ---")
         for i, grant in enumerate(all_grants[:5]):
@@ -172,8 +155,8 @@ def main():
     else:
         print("No grants returned by the API.\n")
 
-    # 2. Local keyword filter (redundant but safe)
-    keyword_relevant = keyword_filter(all_grants)
+    # 2. No local keyword filter – API already did the matching
+    keyword_relevant = all_grants  # trust the API
 
     # 3. Deduplicate using opportunity ID
     new_grants = []
@@ -206,7 +189,7 @@ def main():
         evaluated.append({"grant": grant, "ai": ai_result})
         mark_seen(grant["_dedup_key"], grant.get("title", ""), ai_result["score"], ai_result["reason"])
 
-    # 6. Filter by AI relevance (if AI was used; otherwise keep all)
+    # 6. Filter by AI relevance (if AI used; otherwise keep all)
     if ai_available:
         relevant_evaluated = [e for e in evaluated if e["ai"]["relevant"] is True]
     else:
