@@ -81,44 +81,45 @@ def fetch_all_grants():
     nih_list = nih_reporter.fetch()
     print(f"  → {len(nih_list)} projects")
 
-    # Normalise both to the same dict structure
     all_grants = []
     for g in grants_gov_list:
         all_grants.append({
-            "title": g["title"],
+            "title": g.get("title", ""),
             "description": g.get("summary", ""),
-            "link": g["link"],
+            "link": g.get("link", ""),
             "source": "Grants.gov",
             "deadline": g.get("deadline", "N/A")
         })
     for n in nih_list:
         all_grants.append({
-            "title": n["title"],
+            "title": n.get("title", ""),
             "description": n.get("summary", ""),
-            "link": n["link"],
+            "link": n.get("link", ""),
             "source": "NIH Reporter",
-            "deadline": "N/A"
+            "deadline": n.get("deadline", "N/A")
         })
     return all_grants
-
 # =========================
 # KEYWORD PRE‑FILTER (cheap)
 # =========================
 def keyword_filter(grants):
     filtered = []
     for g in grants:
-        text = (g["title"] + " " + g["description"]).lower()
+        title = g.get("title") or ""
+        desc = g.get("description") or ""
+        text = (title + " " + desc).lower()
         if any(kw.lower() in text for kw in KEYWORDS):
             filtered.append(g)
     print(f"🎯 After keyword filter: {len(filtered)} / {len(grants)} grants")
     return filtered
-
 # =========================
 # AI EVALUATION + SCORING
 # =========================
 def evaluate_grant_with_ai(grant):
-    # Combine title + description for context
-    grant_text = f"Title: {grant['title']}\nDescription: {grant['description']}\nDeadline: {grant['deadline']}"
+    title = grant.get("title") or ""
+    desc = grant.get("description") or ""
+    deadline = grant.get("deadline") or "N/A"
+    grant_text = f"Title: {title}\nDescription: {desc}\nDeadline: {deadline}"
     # Call the OpenAI evaluator
     ai_output = evaluate_grant(grant_text, PROFILE)
     try:
